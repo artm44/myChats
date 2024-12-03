@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.appcompat)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -64,6 +65,7 @@ dependencies {
     implementation ("com.squareup.retrofit2:converter-moshi:2.9.0")
     implementation ("com.squareup.retrofit2:converter-scalars:2.9.0")
     implementation ("com.squareup.moshi:moshi:1.13.0")
+    implementation ("com.squareup.moshi:moshi-adapters:1.13.0")
     implementation ("com.squareup.moshi:moshi-kotlin:1.13.0")
 
     // OkHttp

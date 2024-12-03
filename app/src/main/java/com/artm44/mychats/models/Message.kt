@@ -1,18 +1,18 @@
 package com.artm44.mychats.models
 
+import com.squareup.moshi.JsonClass
+
+@JsonClass(generateAdapter = true)
 data class Message(
-    val to: String = "1@channel", // по умолчанию канал
-    val data: MessageData
+    val id: String,
+    val from: String,
+    val to: String,
+    val data: MessageData,
+    val time: String?
 )
 
-data class MessageData(
-    val text: MessageText
-)
-
-data class MessageText(
-    val text: String
-)
-
-data class MessageResponse(
-    val id: String  // Идентификатор отправленного сообщения
-)
+@JsonClass(generateAdapter = true)
+sealed class MessageData {
+    data class Text(val text: String) : MessageData()
+    data class Image(val link: String?) : MessageData()
+}

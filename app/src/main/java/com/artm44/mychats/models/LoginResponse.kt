@@ -7,7 +7,7 @@ data class RegisterResponse(
 )
 
 data class LoginResponse(
-    val password: String
+    val token: String
 )
 
 data class LoginData(

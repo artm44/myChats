@@ -8,6 +8,7 @@ espressoCore = "3.6.1"
 lifecycleRuntimeKtx = "2.8.6"
 activityCompose = "1.9.3"
 composeBom = "2024.04.01"
+appcompat = "1.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -32,6 +33,7 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version = "4.11.0" }
 
 # Coil для работы с изображениями
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version = "2.4.0" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 
 
 [plugins]
