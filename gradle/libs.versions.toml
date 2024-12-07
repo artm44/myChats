@@ -9,6 +9,11 @@ lifecycleRuntimeKtx = "2.8.6"
 activityCompose = "1.9.3"
 composeBom = "2024.04.01"
 appcompat = "1.7.0"
+datastorePreferences = "1.1.1"
+roomCommon = "2.6.1"
+roomKtx = "2.6.1"
+roomRuntime = "2.6.1"
+roomTestingVersion = "2.6.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -34,6 +39,12 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version = "4.11.0" }
 # Coil для работы с изображениями
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version = "2.4.0" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastorePreferences" }
+androidx-room-common = { group = "androidx.room", name = "room-common", version.ref = "roomCommon" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "roomKtx" }
+androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "roomRuntime" }
+androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "roomRuntime" }
+androidx-room-testing = { module = "androidx.room:room-testing", version.ref = "roomTestingVersion" }
 
 
 [plugins]

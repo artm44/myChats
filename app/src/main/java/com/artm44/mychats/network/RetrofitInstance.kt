@@ -6,7 +6,6 @@ import retrofit2.converter.scalars.ScalarsConverterFactory
 import retrofit2.converter.moshi.MoshiConverterFactory
 import okhttp3.OkHttpClient
 import com.squareup.moshi.Moshi
-import com.squareup.moshi.adapters.PolymorphicJsonAdapterFactory
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
 object RetrofitInstance {
@@ -17,8 +16,8 @@ object RetrofitInstance {
 
     private val retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
-        .addConverterFactory(ScalarsConverterFactory.create()) // Для строковых данных
-        .addConverterFactory(MoshiConverterFactory.create(moshi).asLenient()) // Для JSON
+        .addConverterFactory(ScalarsConverterFactory.create())
+        .addConverterFactory(MoshiConverterFactory.create(moshi).asLenient())
         .client(OkHttpClient())
         .build()
 

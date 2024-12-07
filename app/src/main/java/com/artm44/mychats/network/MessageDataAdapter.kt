@@ -1,9 +1,6 @@
 package com.artm44.mychats.network
 
 import com.artm44.mychats.models.MessageData
-import com.squareup.moshi.JsonAdapter
-import com.squareup.moshi.JsonReader
-import com.squareup.moshi.JsonWriter
 import com.squareup.moshi.FromJson
 import com.squareup.moshi.ToJson
 

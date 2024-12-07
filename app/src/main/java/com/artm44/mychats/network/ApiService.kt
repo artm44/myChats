@@ -1,7 +1,8 @@
 package com.artm44.mychats.network
 
-import com.artm44.mychats.models.LoginResponse
 import com.artm44.mychats.models.Message
+import com.artm44.mychats.models.MessageRequest
+import okhttp3.MultipartBody
 import retrofit2.Response
 import retrofit2.http.*
 
@@ -9,15 +10,20 @@ interface ApiService {
 
     @FormUrlEncoded
     @POST("/addusr")
-    suspend fun registerUser(@Field("name") username: String): Response<String> // Ответ — plain text
+    suspend fun registerUser(@Field("name") username: String): Response<String>
 
-    // Логин
     @POST("/login")
-    suspend fun loginUser(@Body requestBody: Map<String, String>): Response<String> // Ответ — plain text
+    suspend fun loginUser(@Body requestBody: Map<String, String>): Response<String>
 
-    // Прочие запросы, которые могут понадобиться
     @GET("/inbox/{username}")
-    suspend fun getInbox(@Path("username") username: String, @Header("X-Auth-Token") token: String): Response<List<Message>>
+    suspend fun getInbox(
+        @Path("username") username: String,
+        @Header("X-Auth-Token") token: String,
+        @Query("limit") limit: Int? = null,
+        @Query("lastKnownId") lastKnownId: Int? = null,
+        @Query("reverse") reverse: Boolean? = null
+    ): Response<List<Message>>
+
 
     @POST("/logout")
     suspend fun logoutUser(@Header("X-Auth-Token") token: String): Response<Unit>
@@ -25,7 +31,25 @@ interface ApiService {
     @GET("/channels")
     suspend fun getChannels(@Header("X-Auth-Token") token: String): Response<List<String>>
 
+    @POST("/messages")
+    suspend fun sendMessage(
+        @Header("X-Auth-Token") token: String,
+        @Body message: MessageRequest
+    ): Response<Int>
+
+    @Multipart
+    @POST("/messages")
+    suspend fun postMessage(@Header("X-Auth-Token") token: String,
+                            @Part("msg") textMessage: MessageRequest,
+                            @Part image: MultipartBody.Part): Response<Int>
+
+
     @GET("/channel/{name}")
-    suspend fun getChannelMessages(@Path("name") name: String, @Header("X-Auth-Token") token: String): Response<List<Message>>
+    suspend fun getChannelMessages(@Path("name") name: String,
+                                   @Header("X-Auth-Token") token: String,
+                                   @Query("limit") limit: Int? = null,
+                                   @Query("lastKnownId") lastKnownId: Int? = null,
+                                   @Query("reverse") reverse: Boolean? = null
+    ): Response<List<Message>>
 
 }

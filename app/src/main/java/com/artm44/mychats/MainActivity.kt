@@ -1,43 +1,72 @@
 package com.artm44.mychats
 
-import android.content.Context
-import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.ViewModelProvider
 import coil.compose.AsyncImage
+import com.artm44.mychats.data.ChatRepository
+import com.artm44.mychats.models.Chat
 import com.artm44.mychats.models.Message
 import com.artm44.mychats.models.MessageData
+import com.artm44.mychats.network.RetrofitInstance
+import com.artm44.mychats.network.SessionManager
+import com.artm44.mychats.roomdb.AppDatabase
 import com.artm44.mychats.ui.theme.MyChatsTheme
 import com.artm44.mychats.viewmodel.AuthViewModel
+import com.artm44.mychats.viewmodel.AuthViewModelFactory
 import com.artm44.mychats.viewmodel.MainViewModel
+import com.artm44.mychats.viewmodel.MainViewModelFactory
 
 class MainActivity : ComponentActivity() {
-    private val authViewModel: AuthViewModel by viewModels()
-    private val mainViewModel: MainViewModel by viewModels()
+
+    private lateinit var sessionManager: SessionManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        sessionManager = SessionManager(this)
+
+        val database = AppDatabase.getInstance(this)
+        val chatDao = database.chatDao()
+        val messageDao = database.messageDao()
+        val apiService = RetrofitInstance.apiService
+
+        val chatRepository = ChatRepository(chatDao, messageDao, apiService)
+
+        val authViewModel = ViewModelProvider(
+            this,
+            AuthViewModelFactory(sessionManager)
+        )[AuthViewModel::class.java]
+
+        val mainViewModel = ViewModelProvider(
+            this,
+            MainViewModelFactory(sessionManager, chatRepository)
+        )[MainViewModel::class.java]
+
         setContent {
             MyChatsTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -46,6 +75,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
 }
 
 @Composable
@@ -54,8 +84,7 @@ fun AppScreen(authViewModel: AuthViewModel, mainViewModel: MainViewModel) {
 
     when (authState) {
         is AuthViewModel.AuthState.LoggedIn -> {
-            val token = (authState as AuthViewModel.AuthState.LoggedIn).token
-            MainScreen(mainViewModel, token, "artm44") // TODO: change input
+            MainScreen(mainViewModel)
         }
         else -> {
             AuthScreen(authViewModel)
@@ -113,44 +142,55 @@ fun AuthScreen(authViewModel: AuthViewModel) {
 
 @Composable
 fun MainScreen(
-    mainViewModel: MainViewModel,
-    token: String,
-    username: String
+    mainViewModel: MainViewModel
 ) {
     val state by mainViewModel.state.collectAsState()
     val selectedChatOrChannel by mainViewModel.selectedChatOrChannel.collectAsState()
     val messages by mainViewModel.messages.collectAsState()
 
-    // Устанавливаем токен и имя пользователя в ViewModel
     LaunchedEffect(Unit) {
-        mainViewModel.setCredentials(token, username)
-        mainViewModel.loadChatsAndChannels()
+        mainViewModel.loadChats()
+    }
+
+    BackHandler() {
+        when {
+            selectedChatOrChannel != null -> {
+                mainViewModel.selectChat(null)
+            }
+            else -> {
+                mainViewModel.logout()
+            }
+        }
     }
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     if (isLandscape) {
-        // Горизонтальная ориентация
         Row(modifier = Modifier.fillMaxSize()) {
-            // Список чатов
             Box(modifier = Modifier.weight(1f)) {
                 ChatList(
                     state = state,
-                    onChatSelected = { mainViewModel.selectChatOrChannel(it) }
+                    onChatSelected = { mainViewModel.selectChat(it) }
                 )
             }
-            // Детали чата
             Box(modifier = Modifier.weight(2f)) {
                 if (selectedChatOrChannel != null) {
+                    val chatOrChannel = selectedChatOrChannel!!
                     ChatDetailScreen(
-                        chatOrChannel = selectedChatOrChannel!!,
-                        onBack = { mainViewModel.selectChatOrChannel(null) },
-                        messages = messages
+                        chat = chatOrChannel,
+                        onBack = { mainViewModel.selectChat(null) },
+                        messages = messages,
+                        onSendMessage = { message ->
+                            mainViewModel.sendMessage(chatOrChannel.name, message)
+                        },
+                        onLoadMoreMessages = {
+                            mainViewModel.loadMoreMessages(chatOrChannel)
+                        }
                     )
                 } else {
                     Text(
-                        "Выберите чат",
+                        stringResource(R.string.choose_chat),
                         modifier = Modifier
                             .fillMaxSize()
                             .wrapContentSize(),
@@ -160,20 +200,24 @@ fun MainScreen(
             }
         }
     } else {
-        // Портретная ориентация
         Box(modifier = Modifier.fillMaxSize()) {
             if (selectedChatOrChannel == null) {
-                // Список чатов
                 ChatList(
                     state = state,
-                    onChatSelected = { mainViewModel.selectChatOrChannel(it) }
+                    onChatSelected = { mainViewModel.selectChat(it) }
                 )
             } else {
-                // Детали чата
+                val chatOrChannel = selectedChatOrChannel!!
                 ChatDetailScreen(
-                    chatOrChannel = selectedChatOrChannel!!,
-                    onBack = { mainViewModel.selectChatOrChannel(null) },
-                    messages = messages
+                    chat = chatOrChannel,
+                    onBack = { mainViewModel.selectChat(null) },
+                    messages = messages,
+                    onSendMessage = { message ->
+                        mainViewModel.sendMessage(chatOrChannel.name, message)
+                    },
+                    onLoadMoreMessages = {
+                        mainViewModel.loadMoreMessages(chatOrChannel)
+                    }
                 )
             }
         }
@@ -184,7 +228,7 @@ fun MainScreen(
 @Composable
 fun ChatList(
     state: MainViewModel.MainScreenState,
-    onChatSelected: (MainViewModel.ChatOrChannel) -> Unit
+    onChatSelected: (Chat) -> Unit
 ) {
     when (state) {
         is MainViewModel.MainScreenState.Loading -> {
@@ -202,26 +246,52 @@ fun ChatList(
             }
         }
         is MainViewModel.MainScreenState.Error -> {
-            Text("Error: ${state.message}", modifier = Modifier.fillMaxSize())
+            Text(stringResource(R.string.error, state.message), modifier = Modifier.fillMaxSize())
         }
     }
 }
 
 @Composable
 fun ChatDetailScreen(
-    chatOrChannel: MainViewModel.ChatOrChannel,
+    chat: Chat,
     onBack: () -> Unit,
-    messages: List<Message>
+    messages: List<Message>,
+    onSendMessage: (String) -> Unit,
+    onLoadMoreMessages: suspend () -> Boolean
 ) {
-    Column {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+    var inputMessage by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    var canLoadMore by remember { mutableStateOf(true) }
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty() && listState.firstVisibleItemIndex == 0) {
+            listState.scrollToItem(0)
         }
-        Text(
-            text = "Chat/Channel: ${chatOrChannel.name}",
-            style = MaterialTheme.typography.titleMedium
-        )
-        LazyColumn {
+    }
+
+    LaunchedEffect(listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index, canLoadMore) {
+        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+        if (lastVisibleIndex == messages.lastIndex && canLoadMore) {
+            canLoadMore = onLoadMoreMessages()
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+            Text(
+                text = "Chat: ${chat.name}",
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            state = listState,
+            reverseLayout = true
+        ) {
             items(messages) { message ->
                 when (val data = message.data) {
                     is MessageData.Text -> Text("${message.from}: ${data.text}")
@@ -236,6 +306,35 @@ fun ChatDetailScreen(
                 }
             }
         }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextField(
+                value = inputMessage,
+                onValueChange = { inputMessage = it },
+                placeholder = { Text(stringResource(R.string.type_a_message)) },
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
+                maxLines = 1,
+                singleLine = true
+            )
+            Button(
+                onClick = {
+                    if (inputMessage.isNotBlank()) {
+                        onSendMessage(inputMessage)
+                        inputMessage = ""
+                    }
+                },
+                enabled = inputMessage.isNotBlank()
+            ) {
+                Text(stringResource(R.string.send_button))
+            }
+        }
     }
 }
 
@@ -244,31 +343,25 @@ fun ImageMessage(
     from: String,
     imagePath: String
 ) {
-    val fullImageUrl = "https://faerytea.name:8008/img/$imagePath"
-    val thumbnailUrl = "https://faerytea.name:8008/thumb/$imagePath"
-
-    // Состояние для отображения полноэкранного изображения
     var showFullScreenImage by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.padding(8.dp)) {
+    Column {
         Text("$from: ", style = MaterialTheme.typography.bodyMedium)
 
-        // Кликабельное мини-изображение
         AsyncImage(
-            model = thumbnailUrl,
+            model = stringResource(R.string.img_url, "thumb/$imagePath"),
             contentDescription = "Thumbnail",
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
-                .clickable { showFullScreenImage = true } // Показать полноэкранное изображение при клике
+                .clickable { showFullScreenImage = true }
         )
     }
 
-    // Открытие изображения в диалоге при клике
     if (showFullScreenImage) {
         FullScreenImageDialog(
-            imageUrl = fullImageUrl,
+            imageUrl = stringResource(R.string.img_url, "img/$imagePath"),
             onClose = { showFullScreenImage = false }
         )
     }
@@ -280,27 +373,31 @@ fun FullScreenImageDialog(
     imageUrl: String,
     onClose: () -> Unit
 ) {
-    // Диалог с полноэкранным изображением
-    Dialog(onDismissRequest = onClose) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black) // Темный фон
+                .background(Color.Black)
         ) {
             AsyncImage(
                 model = imageUrl,
                 contentDescription = "Full-size image",
-                contentScale = ContentScale.FillWidth, // Используем FillWidth, чтобы изображение растягивалось по ширине экрана
-                modifier = Modifier
-                    .fillMaxSize() // Заполняем весь экран без отступов
-            )
-
-            // Закрытие диалога при клике
-            Box(
+                contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
-                    .clickable { onClose() } // Закрытие при клике
+            )
+
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Close",
+                tint = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .size(24.dp)
+                    .clickable { onClose() }
             )
         }
     }
 }
+

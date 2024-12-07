@@ -3,101 +3,180 @@ package com.artm44.mychats.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.artm44.mychats.data.ChatRepository
+import com.artm44.mychats.models.Chat
 import com.artm44.mychats.models.Message
+import com.artm44.mychats.models.MessageData
 import com.artm44.mychats.network.RetrofitInstance
+import com.artm44.mychats.network.SessionManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
-class MainViewModel : ViewModel() {
-
-    private val api = RetrofitInstance.apiService
-
-    private var token: String = ""
-    private var username: String = ""
+class MainViewModel(
+    private val sessionManager: SessionManager,
+    private val chatRepository: ChatRepository
+) : ViewModel() {
 
     private val _state = MutableStateFlow<MainScreenState>(MainScreenState.Loading)
     val state = _state.asStateFlow()
 
-    private val _selectedChatOrChannel = MutableStateFlow<ChatOrChannel?>(null)
-    val selectedChatOrChannel = _selectedChatOrChannel.asStateFlow()
+    private val _selectedChat = MutableStateFlow<Chat?>(null)
+    val selectedChatOrChannel = _selectedChat.asStateFlow()
 
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages = _messages.asStateFlow()
 
-    fun setCredentials(userToken: String, userName: String) {
-        token = userToken
-        username = userName
-    }
-
-    fun loadChatsAndChannels() {
+    fun loadChats() {
         viewModelScope.launch {
             try {
-                // Получение каналов
-                val channelsResponse = api.getChannels(token)
-                val channels = channelsResponse.body() ?: emptyList()
+                val token = sessionManager.token.firstOrNull().orEmpty()
+                val username = sessionManager.username.firstOrNull().orEmpty()
 
-                // Получение сообщений
-                val messagesResponse = api.getInbox(username, token)
-                val messages = messagesResponse.body() ?: emptyList()
+                if (token.isEmpty() || username.isEmpty()) {
+                    _state.value = MainScreenState.Error("Token or username is missing")
+                    return@launch
+                }
 
-                // Фильтрация чатов (исключая каналы)
-                val chats = messages
-                    .filter { it.to != null && !it.to!!.contains("@channel") }
-                    .map { message ->
-                        val otherParty = if (message.from == username) message.to!! else message.from
-                        ChatOrChannel(otherParty, isChannel = false)
-                    }
-                    .distinctBy { it.name }
-
-                // Объединение чатов и каналов
-                val allItems = chats + channels.map { ChatOrChannel(it, isChannel = true) }
-                _state.value = MainScreenState.Success(allItems)
+                val chatsAndChannels = chatRepository.getChats(username, token) {
+                    logout()
+                }
+                _state.value = MainScreenState.Success(chatsAndChannels)
             } catch (e: Exception) {
-                Log.d("MainViewModel", e.message ?: "Unknown error")
                 _state.value = MainScreenState.Error(e.message ?: "Unknown error")
             }
         }
     }
 
-    fun loadMessagesForChatOrChannel(chatOrChannel: ChatOrChannel) {
+    private fun loadMessagesForChat(chat: Chat) {
         viewModelScope.launch {
             try {
-                val messagesResponse = if (chatOrChannel.isChannel) {
-                    api.getChannelMessages(chatOrChannel.name, token)
-                } else {
-                    api.getInbox(username, token) // Загружаем все сообщения для пользователя
+                val token = sessionManager.token.firstOrNull().orEmpty()
+                val username = sessionManager.username.firstOrNull().orEmpty()
+
+                if (token.isEmpty() || username.isEmpty()) {
+                    _state.value = MainScreenState.Error("Token or username is missing")
+                    return@launch
                 }
 
-                val allMessages = messagesResponse.body() ?: emptyList()
-                // Фильтруем сообщения, если это не канал
-                _messages.value = if (!chatOrChannel.isChannel) {
-                    allMessages.filter { it.from == chatOrChannel.name || it.to == chatOrChannel.name }
-                } else {
-                    allMessages
+                val messages = chatRepository.getMessagesForChat(
+                    username = username,
+                    channel = chat,
+                    token = token
+                ) {
+                    logout()
                 }
+
+                _messages.value = messages
+                chat.lastKnownId = messages.minOfOrNull { it.id } ?: chat.lastKnownId
             } catch (e: Exception) {
-                Log.d("MainViewModel", e.message ?: "Unknown error")
+                Log.e("MainViewModel", e.message ?: "Failed to load messages")
                 _messages.value = emptyList()
             }
         }
     }
 
-    fun selectChatOrChannel(item: ChatOrChannel?) {
-        _selectedChatOrChannel.value = item
+    fun selectChat(item: Chat?) {
+        _selectedChat.value = item
         if (item != null) {
-            loadMessagesForChatOrChannel(item)
+            loadMessagesForChat(item)
         } else {
             _messages.value = emptyList()
         }
     }
 
-    sealed class MainScreenState {
-        object Loading : MainScreenState()
-        data class Success(val chatsAndChannels: List<ChatOrChannel>) : MainScreenState()
-        data class Error(val message: String) : MainScreenState()
+    fun sendMessage(chatId: String, text: String) {
+        viewModelScope.launch {
+            try {
+                val token = sessionManager.token.firstOrNull()
+                val username = sessionManager.username.firstOrNull()
+
+                if (token.isNullOrEmpty() || username.isNullOrEmpty()) {
+                    _state.value = MainScreenState.Error("Token or username is missing")
+                    return@launch
+                }
+
+                val result = chatRepository.sendMessage(
+                    from = username,
+                    to = chatId,
+                    data = MessageData.Text(text),
+                    token = token
+                ) {
+                    logout()
+                }
+
+                if (result.isSuccess) {
+                    selectedChatOrChannel.value?.let { loadMessagesForChat(it) }
+                } else {
+                    Log.e("MainViewModel", "Failed to send message: ${result.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Error sending message", e)
+            }
+        }
     }
 
-    data class ChatOrChannel(val name: String, val isChannel: Boolean)
-}
+    suspend fun loadMoreMessages(chat: Chat): Boolean {
+        return try {
+            val token = sessionManager.token.firstOrNull().orEmpty()
+            val username = sessionManager.username.firstOrNull().orEmpty()
 
+            if (token.isEmpty()) {
+                _state.value = MainScreenState.Error("Token is missing")
+                return false
+            }
+            Log.d("MainViewModel", chat.lastKnownId.toString())
+            val newMessages = chatRepository.getMessagesForChat(
+                username = username,
+                channel = chat,
+                token = token,
+                lastKnownId = chat.lastKnownId,
+                rev = true
+            ) {
+                logout()
+            }
+
+            if (newMessages.isNotEmpty()) {
+                _messages.value += newMessages
+                chat.lastKnownId = newMessages.minOfOrNull { it.id } ?: chat.lastKnownId
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e("MainViewModel", e.message ?: "Failed to load latest messages")
+            false
+        }
+    }
+
+    fun logout() {
+        viewModelScope.launch {
+            try {
+                val token = sessionManager.token.firstOrNull()
+
+                if (!token.isNullOrEmpty()) {
+                    
+                    val response = RetrofitInstance.apiService.logoutUser(token)
+
+                    if (response.isSuccessful) {
+                        Log.d("MainViewModel", "Logout successful on server")
+                    } else {
+                        Log.d("MainViewModel", "Failed to logout on server: ${response.message()}")
+                    }
+                }
+
+                sessionManager.clearSession()
+                _state.value = MainScreenState.Loading
+            } catch (e: Exception) {
+                Log.d("MainViewModel", "Logout error: ${e.message}")
+            }
+        }
+    }
+
+    sealed class MainScreenState {
+        object Loading : MainScreenState()
+        data class Success(val chatsAndChannels: List<Chat>) : MainScreenState()
+        data class Error(val message: String) : MainScreenState()
+    }
+}
